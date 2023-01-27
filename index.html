@@ -1,0 +1,98 @@
+<html>
+
+<head>
+  <title>Checkout</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <meta />
+</head>
+<form id='payment-method-form'>
+  <input id="account-holder-name-field" />
+  <br />
+  <input id="email-field" />
+  <input type="submit" value="submit" />
+</form>
+
+<form id="confirmation-form">
+  <input type="submit"/>
+</form>
+
+<body>
+</body>
+<script>
+
+  const stripe = Stripe("PUBLIC_KEY");
+  let clientSecret;
+  (async () => {
+
+    const response = await fetch('/secret');
+    let { client_secret } = await response.json();
+    clientSecret = client_secret;
+
+  })();
+
+  const paymentMethodForm = document.getElementById('payment-method-form');
+  const confirmationForm = document.getElementById('confirmation-form');
+
+  paymentMethodForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const accountHolderNameField = document.getElementById('account-holder-name-field');
+    const emailField = document.getElementById('email-field');
+
+    // Calling this method will open the instant verification dialog.
+    stripe.collectBankAccountForPayment({
+      clientSecret: clientSecret,
+      params: {
+        payment_method_type: 'us_bank_account',
+        payment_method_data: {
+          billing_details: {
+            name: accountHolderNameField.value,
+            email: emailField.value,
+          },
+        },
+      },
+      expand: ['payment_method'],
+    })
+      .then(({ paymentIntent, error }) => {
+        if (error) {
+          console.error(error.message);
+          // PaymentMethod collection failed for some reason.
+        } else if (paymentIntent.status === 'requires_payment_method') {
+          // Customer canceled the hosted verification modal. Present them with other
+          // payment method type options.
+          console.log('requires_payment_method')
+        } else if (paymentIntent.status === 'requires_confirmation') {
+          // We collected an account - possibly instantly verified, but possibly
+          // manually-entered. Display payment method details and mandate text
+          // to the customer and confirm the intent once they accept
+          // the mandate.
+          console.log(paymentIntent);
+          console.log('requires_confirmation')
+          confirmationForm.show();
+        }
+      });
+  });
+  confirmationForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    stripe.confirmUsBankAccountPayment(clientSecret)
+      .then(({ paymentIntent, error }) => {
+        if (error) {
+          console.error(error.message);
+          // The payment failed for some reason.
+        } else if (paymentIntent.status === "requires_payment_method") {
+          // Confirmation failed. Attempt again with a different payment method.
+          console.log('requires_payment_method')
+        } else if (paymentIntent.status === "processing") {
+          // Confirmation succeeded! The account will be debited.
+          // Display a message to customer.
+          console.log('processing')
+        } else if (paymentIntent.next_action?.type === "verify_with_microdeposits") {
+          // The account needs to be verified via microdeposits.
+          // Display a message to consumer with next steps (consumer waits for
+          // microdeposits, then enters a statement descriptor code on a page sent to them via email).
+          console.log('verify_with_microdeposits');
+        }
+      });
+  });
+</script>
+
+</html>
